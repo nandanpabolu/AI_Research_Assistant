@@ -7,6 +7,7 @@ import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Optional, Dict, Any
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,8 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Import our modules
 from core.config import get_config, UI
+from core.ai_analyzer import ai_analyzer
+from core.pdf_generator import pdf_generator
+from core.technical_analysis import technical_analyzer
 from models.database import DatabaseManager
-from models.schemas import RunStatus
+from models.schemas import RunStatus, RiskItem, OpportunityItem, MetricItem
 from ingestors import SECIngestor, NewsIngestor, MarketIngestor
 
 # Page configuration
@@ -61,6 +65,17 @@ def main():
     # Initialize components
     initialize_components()
     
+    # Create main tabs
+    tab1, tab2 = st.tabs(["📊 Single Analysis", "⚖️ Compare Companies"])
+    
+    with tab1:
+        single_company_analysis()
+    
+    with tab2:
+        company_comparison_analysis()
+
+def single_company_analysis():
+    """Single company analysis interface."""
     # Sidebar
     with st.sidebar:
         st.header("📊 Analysis Options")
@@ -380,83 +395,117 @@ def run_sync_analysis(run_id: int, query: str):
         st.session_state.database.update_run_status(run_id, RunStatus.FAILED, str(e))
 
 def generate_simple_memo(ticker: str, sources: list):
-    """Generate a simple memo based on available sources."""
-    from models.schemas import RiskItem, OpportunityItem, MetricItem
+    """Generate an AI-powered memo based on available sources."""
     
     # Count sources by type
     source_counts = {}
+    text_chunks = []
+    
     for source in sources:
         source_type = source.type.value if hasattr(source.type, 'value') else source.type
         source_counts[source_type] = source_counts.get(source_type, 0) + 1
+        
+        # Collect text content for AI analysis
+        if source.raw_content:
+            # Clean and truncate content
+            content = source.raw_content.strip()
+            if len(content) > 1000:  # Limit content length
+                content = content[:1000] + "..."
+            if len(content) > 50:  # Only include substantial content
+                text_chunks.append(content)
     
-    # Create memo content with proper Pydantic objects
-    memo_data = {
-        "tldr": f"{ticker} analysis completed with {len(sources)} data sources. Analysis covers market data, news, and regulatory filings.",
-        "risks": [
-            RiskItem(
-                risk="Data availability",
-                rationale=f"Limited data sources available ({len(sources)} total)",
-                source_ids=[1],
-                confidence=0.7,
-                severity="low"
-            ),
+    # Generate AI-powered insights
+    try:
+        logger.info(f"Generating AI insights from {len(text_chunks)} text chunks")
+        
+        # Extract AI insights
+        ai_risks = ai_analyzer.extract_risks(text_chunks, ticker)
+        ai_opportunities = ai_analyzer.extract_opportunities(text_chunks, ticker)
+        ai_summary = ai_analyzer.generate_summary(text_chunks, max_length=200)
+        
+        logger.info(f"AI analysis generated {len(ai_risks)} risks and {len(ai_opportunities)} opportunities")
+        
+    except Exception as e:
+        logger.error(f"AI analysis failed: {e}")
+        ai_risks = []
+        ai_opportunities = []
+        ai_summary = f"{ticker} analysis completed with {len(sources)} data sources."
+    
+    # Fallback to basic analysis if AI fails
+    if not ai_risks:
+        ai_risks = [
             RiskItem(
                 risk="Market volatility",
-                rationale="General market risks apply to all investments",
-                source_ids=[2],
-                confidence=0.8,
-                severity="medium"
+                rationale="General market risks apply to all equity investments",
+                source_ids=["S1"]
             ),
             RiskItem(
-                risk="Regulatory changes",
-                rationale="Potential changes in financial regulations",
-                source_ids=[3],
-                confidence=0.6,
-                severity="low"
+                risk="Competitive pressures",
+                rationale="Industry competition may impact market share",
+                source_ids=["S2"]
+            ),
+            RiskItem(
+                risk="Regulatory environment",
+                rationale="Changes in regulations could affect operations",
+                source_ids=["S3"]
             )
-        ],
-        "opportunities": [
+        ]
+    
+    if not ai_opportunities:
+        ai_opportunities = [
             OpportunityItem(
-                opportunity="Data expansion",
-                rationale=f"Currently analyzing {len(sources)} sources, potential for more comprehensive analysis",
-                source_ids=[4],
-                confidence=0.8,
-                potential_impact="medium"
+                opportunity="Market expansion",
+                rationale="Potential for growth in new markets or segments",
+                source_ids=["S1"]
             ),
             OpportunityItem(
-                opportunity="AI enhancement",
-                rationale="Ready for AI model integration for deeper insights",
-                source_ids=[5],
-                confidence=0.9,
-                potential_impact="high"
+                opportunity="Innovation potential",
+                rationale="Technology and product development opportunities",
+                source_ids=["S2"]
             ),
             OpportunityItem(
-                opportunity="Real-time updates",
-                rationale="Framework supports live data updates",
-                source_ids=[6],
-                confidence=0.7,
-                potential_impact="medium"
+                opportunity="Strategic partnerships",
+                rationale="Potential for beneficial business relationships",
+                source_ids=["S3"]
             )
-        ],
+        ]
+    
+    # Use AI summary or fallback
+    if not ai_summary or len(ai_summary) < 50:
+        ai_summary = f"{ticker} analysis completed with {len(sources)} data sources covering market data, news, and regulatory filings. Analysis identifies key business risks and growth opportunities."
+    
+    # Create enhanced memo with AI insights
+    memo_data = {
+        "tldr": ai_summary,
+        "risks": ai_risks[:3],  # Top 3 risks
+        "opportunities": ai_opportunities[:3],  # Top 3 opportunities
         "metrics": [
             MetricItem(
                 metric="Data Sources",
                 value=str(len(sources)),
                 trend="stable",
                 period="Current",
-                source_ids=[7],
+                source_ids=["S1"],
                 context=f"Total sources analyzed: {len(sources)}"
             ),
             MetricItem(
                 metric="Source Types",
                 value=str(len(source_counts)),
-                trend="up",
+                trend="up", 
                 period="Current",
-                source_ids=[8],
+                source_ids=["S2"],
                 context=f"Data diversity: {', '.join(source_counts.keys())}"
+            ),
+            MetricItem(
+                metric="AI Insights",
+                value=str(len(ai_risks) + len(ai_opportunities)),
+                trend="up",
+                period="Current", 
+                source_ids=["S3"],
+                context=f"AI-generated insights: {len(ai_risks)} risks, {len(ai_opportunities)} opportunities"
             )
         ],
-        "html_content": f"<h1>{ticker} Analysis Report</h1><p>Analysis completed with {len(sources)} data sources.</p>"
+        "html_content": f"<h1>{ticker} AI Analysis Report</h1><p>{ai_summary}</p><p><strong>Sources analyzed:</strong> {len(sources)}</p>"
     }
     
     return memo_data
@@ -495,6 +544,10 @@ def display_results(run_id: int):
         for metric in memo.metrics[:5]:
             st.write(f"**{metric.metric}:** {metric.value} ({metric.trend})")
         
+        # Technical Analysis Charts
+        st.subheader("📈 Technical Analysis")
+        display_technical_analysis(run)
+        
         # Sources (show automatically)
         st.subheader("📚 Data Sources")
         display_sources(run_id)
@@ -505,7 +558,39 @@ def display_results(run_id: int):
         
         with col1:
             if st.button("📄 Export PDF", use_container_width=True):
-                st.info("PDF export coming soon!")
+                try:
+                    with st.spinner("Generating PDF report..."):
+                        # Get memo and sources for PDF generation
+                        sources = st.session_state.database.get_sources(run_id)
+                        run = st.session_state.database.get_run(run_id)
+                        
+                        # Generate PDF
+                        pdf_bytes = pdf_generator.generate_pdf_report(
+                            memo_data=memo.model_dump() if hasattr(memo, 'model_dump') else memo.__dict__,
+                            ticker=run.query.upper(),
+                            sources=sources,
+                            run_id=run_id
+                        )
+                        
+                        if pdf_bytes:
+                            # Create download button
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            filename = f"{run.query.upper()}_analysis_{timestamp}.pdf"
+                            
+                            st.download_button(
+                                label="⬇️ Download PDF Report",
+                                data=pdf_bytes,
+                                file_name=filename,
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                            st.success("PDF report generated successfully!")
+                        else:
+                            st.error("PDF generation failed. Please check logs.")
+                            
+                except Exception as e:
+                    st.error(f"PDF export failed: {e}")
+                    logger.error(f"PDF export error: {e}")
         
         with col2:
             if st.button("📊 Export PPTX", use_container_width=True):
@@ -518,6 +603,88 @@ def display_results(run_id: int):
     except Exception as e:
         st.error(f"Failed to display results: {e}")
         logger.error(f"Results display error: {e}")
+
+def display_technical_analysis(run):
+    """Display technical analysis charts and insights."""
+    try:
+        if not run or not run.query:
+            st.info("No ticker available for technical analysis")
+            return
+        
+        ticker = run.query.upper()
+        
+        # Options for technical analysis
+        col1, col2 = st.columns([2, 1])
+        
+        with col2:
+            period = st.selectbox(
+                "Time Period",
+                ["1mo", "3mo", "6mo", "1y", "2y"],
+                index=2,  # Default to 6mo
+                help="Select time period for analysis"
+            )
+            
+            show_full_analysis = st.checkbox(
+                "Full Technical Analysis", 
+                value=True,
+                help="Show comprehensive technical indicators"
+            )
+        
+        with col1:
+            with st.spinner(f"Generating technical analysis for {ticker}..."):
+                if show_full_analysis:
+                    # Generate comprehensive technical analysis
+                    tech_results = technical_analyzer.generate_comprehensive_chart(ticker, period)
+                    
+                    if tech_results:
+                        # Display chart
+                        st.components.v1.html(
+                            tech_results["chart_html"], 
+                            height=850, 
+                            scrolling=True
+                        )
+                        
+                        # Display insights
+                        st.subheader("💡 Technical Insights")
+                        
+                        insights = tech_results.get("insights", [])
+                        if insights:
+                            for insight in insights:
+                                signal_color = {
+                                    "Bullish": "🟢",
+                                    "Bearish": "🔴", 
+                                    "Overbought": "🟠",
+                                    "Oversold": "🟡",
+                                    "High": "🔴",
+                                    "Low": "🟡",
+                                    "Normal": "🟢",
+                                    "Neutral": "⚪"
+                                }.get(insight["signal"], "⚪")
+                                
+                                st.write(f"{signal_color} **{insight['type']}**: {insight['signal']}")
+                                st.caption(insight["description"])
+                        else:
+                            st.info("No technical insights available")
+                        
+                        # Show analysis metadata
+                        st.caption(f"Data points: {tech_results.get('data_points', 0)} | "
+                                 f"Period: {period} | "
+                                 f"Last updated: {tech_results.get('last_update', 'Unknown')}")
+                    else:
+                        st.warning(f"Unable to generate technical analysis for {ticker}")
+                        
+                else:
+                    # Generate simple price chart
+                    simple_chart = technical_analyzer.create_simple_price_chart(ticker, period)
+                    
+                    if simple_chart:
+                        st.components.v1.html(simple_chart, height=450, scrolling=True)
+                    else:
+                        st.warning(f"Unable to generate price chart for {ticker}")
+        
+    except Exception as e:
+        st.error(f"Technical analysis failed: {e}")
+        logger.error(f"Technical analysis error: {e}")
 
 def display_sources(run_id: int):
     """Display data sources used in the analysis."""
@@ -548,6 +715,219 @@ def display_sources(run_id: int):
     except Exception as e:
         st.error(f"Failed to display sources: {e}")
         logger.error(f"Sources display error: {e}")
+
+def company_comparison_analysis():
+    """Company comparison analysis interface."""
+    st.header("⚖️ Compare Two Companies")
+    st.markdown("Analyze and compare two companies side by side")
+    
+    # Input for two companies
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Company A")
+        ticker_a = st.text_input("Ticker A", placeholder="e.g., AAPL", key="ticker_a")
+        
+    with col2:
+        st.subheader("Company B") 
+        ticker_b = st.text_input("Ticker B", placeholder="e.g., MSFT", key="ticker_b")
+    
+    # Comparison options
+    st.subheader("⚙️ Comparison Options")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        include_metrics = st.checkbox("Financial Metrics", value=True)
+        include_risks = st.checkbox("Risk Analysis", value=True)
+        
+    with col2:
+        include_opportunities = st.checkbox("Opportunities", value=True)
+        include_charts = st.checkbox("Visual Charts", value=True)
+    
+    # Start comparison button
+    if st.button("🔄 Start Comparison", type="primary", use_container_width=True):
+        if ticker_a and ticker_b and ticker_a.strip() and ticker_b.strip():
+            run_comparison_analysis(ticker_a.strip(), ticker_b.strip(), 
+                                  include_metrics, include_risks, include_opportunities, include_charts)
+        else:
+            st.error("Please enter both ticker symbols")
+    
+    # Display comparison results if available
+    if 'comparison_results' in st.session_state:
+        display_comparison_results()
+
+def run_comparison_analysis(ticker_a: str, ticker_b: str, include_metrics: bool, 
+                          include_risks: bool, include_opportunities: bool, include_charts: bool):
+    """Run comparison analysis for two companies."""
+    
+    with st.spinner(f"Analyzing {ticker_a} vs {ticker_b}..."):
+        try:
+            # Get or create analyses for both companies
+            results_a = get_or_create_analysis(ticker_a)
+            results_b = get_or_create_analysis(ticker_b)
+            
+            if results_a and results_b:
+                # Store comparison results
+                st.session_state.comparison_results = {
+                    'ticker_a': ticker_a.upper(),
+                    'ticker_b': ticker_b.upper(),
+                    'results_a': results_a,
+                    'results_b': results_b,
+                    'options': {
+                        'metrics': include_metrics,
+                        'risks': include_risks, 
+                        'opportunities': include_opportunities,
+                        'charts': include_charts
+                    }
+                }
+                st.success(f"✅ Comparison completed: {ticker_a} vs {ticker_b}")
+                st.rerun()
+            else:
+                st.error("Failed to analyze one or both companies")
+                
+        except Exception as e:
+            st.error(f"Comparison failed: {e}")
+            logger.error(f"Comparison error: {e}")
+
+def get_or_create_analysis(ticker: str) -> Optional[Dict]:
+    """Get existing analysis or create new one for a ticker."""
+    try:
+        # Check for recent completed analysis
+        if st.session_state.database:
+            recent_runs = st.session_state.database.get_recent_runs(limit=10)
+            for run in recent_runs:
+                if run.query.upper() == ticker.upper() and run.status == 'completed':
+                    # Get memo and sources
+                    memo = st.session_state.database.get_memo(run.id)
+                    sources = st.session_state.database.get_sources(run.id)
+                    
+                    if memo:
+                        return {
+                            'run_id': run.id,
+                            'memo': memo,
+                            'sources': sources,
+                            'timestamp': run.finished_at
+                        }
+        
+        # If no recent analysis, run a quick one
+        st.info(f"Running fresh analysis for {ticker}...")
+        return run_quick_analysis(ticker)
+        
+    except Exception as e:
+        logger.error(f"Failed to get/create analysis for {ticker}: {e}")
+        return None
+
+def run_quick_analysis(ticker: str) -> Optional[Dict]:
+    """Run a quick analysis for comparison purposes."""
+    try:
+        # Create new analysis run
+        run_id = st.session_state.database.create_run(ticker)
+        
+        # Quick data collection (market data only for speed)
+        market_ingestor = MarketIngestor()
+        sources = []
+        
+        # Get market data
+        try:
+            market_sources = run_sync_analysis(
+                market_ingestor.ingest(ticker, run_id)
+            )
+            sources.extend(market_sources)
+        except Exception as e:
+            logger.warning(f"Market data failed for {ticker}: {e}")
+        
+        # Generate quick memo
+        memo_data = generate_simple_memo(ticker, sources)
+        memo_id = st.session_state.database.save_memo(
+            run_id, 
+            memo_data["tldr"],
+            [item.model_dump() for item in memo_data["risks"]],
+            [item.model_dump() for item in memo_data["opportunities"]], 
+            [item.model_dump() for item in memo_data["metrics"]],
+            memo_data["html_content"]
+        )
+        
+        # Update run status
+        st.session_state.database.update_run_status(run_id, RunStatus.COMPLETED)
+        
+        # Get memo object
+        memo = st.session_state.database.get_memo(run_id)
+        
+        return {
+            'run_id': run_id,
+            'memo': memo,
+            'sources': sources,
+            'timestamp': datetime.now()
+        }
+        
+    except Exception as e:
+        logger.error(f"Quick analysis failed for {ticker}: {e}")
+        return None
+
+def display_comparison_results():
+    """Display side-by-side comparison results."""
+    if 'comparison_results' not in st.session_state:
+        return
+    
+    results = st.session_state.comparison_results
+    
+    st.header(f"📊 {results['ticker_a']} vs {results['ticker_b']}")
+    
+    # Summary comparison
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader(f"🏢 {results['ticker_a']}")
+        memo_a = results['results_a']['memo']
+        st.write("**Executive Summary**")
+        st.write(memo_a.tldr)
+        
+        if results['options']['risks']:
+            st.write("**Top Risks:**")
+            for risk in memo_a.risks[:2]:
+                st.write(f"• {risk.risk}")
+        
+        if results['options']['opportunities']:
+            st.write("**Top Opportunities:**")
+            for opp in memo_a.opportunities[:2]:
+                st.write(f"• {opp.opportunity}")
+    
+    with col2:
+        st.subheader(f"🏢 {results['ticker_b']}")
+        memo_b = results['results_b']['memo']
+        st.write("**Executive Summary**")
+        st.write(memo_b.tldr)
+        
+        if results['options']['risks']:
+            st.write("**Top Risks:**")
+            for risk in memo_b.risks[:2]:
+                st.write(f"• {risk.risk}")
+        
+        if results['options']['opportunities']:
+            st.write("**Top Opportunities:**")
+            for opp in memo_b.opportunities[:2]:
+                st.write(f"• {opp.opportunity}")
+    
+    # Metrics comparison
+    if results['options']['metrics']:
+        st.subheader("📈 Metrics Comparison")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write(f"**{results['ticker_a']} Metrics**")
+            for metric in memo_a.metrics:
+                st.metric(metric.metric, metric.value, metric.trend)
+        
+        with col2:
+            st.write(f"**{results['ticker_b']} Metrics**")
+            for metric in memo_b.metrics:
+                st.metric(metric.metric, metric.value, metric.trend)
+    
+    # Export comparison
+    st.subheader("📤 Export Comparison")
+    if st.button("📄 Export Comparison PDF", use_container_width=True):
+        st.info("Comparison PDF export coming soon!")
 
 if __name__ == "__main__":
     main()

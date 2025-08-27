@@ -98,7 +98,7 @@ class NewsIngestor(BaseIngestor):
             for feed_url in rss_feeds:
                 try:
                     self.logger.info(f"Processing RSS feed: {feed_url}")
-                    feed_sources = await self._process_rss_feed(feed_url, query, max_articles // len(rss_feeds))
+                    feed_sources = await self._process_rss_feed(feed_url, query, max_articles // len(rss_feeds), run_id)
                     self.logger.info(f"Feed {feed_url} returned {len(feed_sources)} sources")
                     sources.extend(feed_sources)
                     
@@ -120,7 +120,7 @@ class NewsIngestor(BaseIngestor):
             self.logger.error(f"News ingestion failed for {query}: {e}")
             return []
     
-    async def _process_rss_feed(self, feed_url: str, query: str, max_articles: int) -> List[DataSource]:
+    async def _process_rss_feed(self, feed_url: str, query: str, max_articles: int, run_id: int) -> List[DataSource]:
         """
         Process a single RSS feed.
         
@@ -150,7 +150,7 @@ class NewsIngestor(BaseIngestor):
             try:
                 # Check if article is relevant to query
                 if self._is_relevant_article(entry, query):
-                    source = await self._process_article(entry, query)
+                    source = await self._process_article(entry, query, run_id)
                     if source:
                         sources.append(source)
                         
@@ -243,7 +243,7 @@ class NewsIngestor(BaseIngestor):
         
         return False
     
-    async def _process_article(self, entry, query: str) -> Optional[DataSource]:
+    async def _process_article(self, entry, query: str, run_id: int) -> Optional[DataSource]:
         """
         Process a single article entry.
         
@@ -283,7 +283,7 @@ class NewsIngestor(BaseIngestor):
             
             # Create source
             source = self.create_source(
-                run_id=0,  # Will be set by the caller
+                run_id=run_id,
                 url=url,
                 title=title,
                 published_at=published_at,

@@ -41,10 +41,8 @@ class SECIngestor(BaseIngestor):
             download_dir = Path("cache/sec_filings")
             download_dir.mkdir(parents=True, exist_ok=True)
             
-            self.downloader = Downloader(
-                user_agent=self.config.get("user_agent", "AI Research Assistant"),
-                download_folder=str(download_dir)
-            )
+            # Initialize downloader (user_agent parameter removed in newer versions)
+            self.downloader = Downloader(str(download_dir))
             self.logger.info("SEC downloader initialized successfully")
             
         except Exception as e:
