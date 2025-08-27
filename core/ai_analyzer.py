@@ -88,16 +88,27 @@ class AIAnalyzer:
             return self._extract_risks_fallback(text_chunks, company_name)
         
         risks = []
+        
+        # Enhanced risk patterns with financial context
         risk_patterns = [
-            r'risk(?:s)?.*?(?:include|are|of)',
-            r'challenge(?:s)?.*?(?:include|facing|with)',
-            r'threat(?:s)?.*?(?:to|from|of)',
-            r'concern(?:s)?.*?(?:about|regarding|over)',
-            r'uncertainty.*?(?:in|about|regarding)',
-            r'volatility.*?(?:in|of|due to)',
-            r'decline.*?(?:in|of|due to)',
-            r'competition.*?(?:from|in|increasing)'
+            r'risk(?:s)?.*?(?:include|are|of|to|from)',
+            r'challenge(?:s)?.*?(?:include|facing|with|in)',
+            r'threat(?:s)?.*?(?:to|from|of|posed)',
+            r'concern(?:s)?.*?(?:about|regarding|over|raised)',
+            r'uncertainty.*?(?:in|about|regarding|surrounding)',
+            r'volatility.*?(?:in|of|due to|caused by)',
+            r'decline.*?(?:in|of|due to|resulted from)',
+            r'competition.*?(?:from|in|increasing|intense)',
+            r'regulatory.*?(?:risk|concern|change|pressure)',
+            r'market.*?(?:downturn|pressure|risk|decline)',
+            r'cyber.*?(?:risk|security|threat|attack)',
+            r'supply.*?(?:chain|shortage|disruption)',
+            r'inflation.*?(?:pressure|impact|risk)',
+            r'recession.*?(?:risk|concern|impact)'
         ]
+        
+        # Enhanced sentiment scoring
+        sentiment_scores = []
         
         for i, chunk in enumerate(text_chunks):
             if len(chunk) < 100:  # Skip very short chunks

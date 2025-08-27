@@ -18,6 +18,7 @@ from core.config import get_config, UI
 from core.ai_analyzer import ai_analyzer
 from core.pdf_generator import pdf_generator
 from core.technical_analysis import technical_analyzer
+from core.watchlist import watchlist_manager
 from models.database import DatabaseManager
 from models.schemas import RunStatus, RiskItem, OpportunityItem, MetricItem
 from ingestors import SECIngestor, NewsIngestor, MarketIngestor
@@ -66,13 +67,16 @@ def main():
     initialize_components()
     
     # Create main tabs
-    tab1, tab2 = st.tabs(["📊 Single Analysis", "⚖️ Compare Companies"])
+    tab1, tab2, tab3 = st.tabs(["📊 Single Analysis", "⚖️ Compare Companies", "👁️ Watchlist"])
     
     with tab1:
         single_company_analysis()
     
     with tab2:
         company_comparison_analysis()
+    
+    with tab3:
+        watchlist_interface()
 
 def single_company_analysis():
     """Single company analysis interface."""
@@ -928,6 +932,244 @@ def display_comparison_results():
     st.subheader("📤 Export Comparison")
     if st.button("📄 Export Comparison PDF", use_container_width=True):
         st.info("Comparison PDF export coming soon!")
+
+def watchlist_interface():
+    """Watchlist management interface."""
+    st.header("👁️ Stock Watchlist")
+    st.markdown("Monitor multiple stocks and get automated analysis updates")
+    
+    # Watchlist selection/creation
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.subheader("📋 Manage Watchlists")
+        
+        # Get existing watchlists
+        watchlists = watchlist_manager.get_watchlists()
+        
+        if watchlists:
+            # Select existing watchlist
+            watchlist_names = [w["name"] for w in watchlists]
+            selected_name = st.selectbox("Select Watchlist", watchlist_names)
+            selected_watchlist = next(w for w in watchlists if w["name"] == selected_name)
+            
+            # Display watchlist info
+            st.info(f"**{selected_watchlist['name']}** - {selected_watchlist['item_count']} stocks")
+            if selected_watchlist.get("description"):
+                st.caption(selected_watchlist["description"])
+            
+        else:
+            st.info("No watchlists created yet. Create your first watchlist below.")
+            selected_watchlist = None
+    
+    with col2:
+        st.subheader("➕ Create New Watchlist")
+        
+        with st.form("create_watchlist"):
+            new_name = st.text_input("Watchlist Name", placeholder="e.g., Tech Stocks")
+            new_description = st.text_area("Description", placeholder="Optional description")
+            
+            if st.form_submit_button("Create Watchlist"):
+                if new_name.strip():
+                    try:
+                        watchlist_id = watchlist_manager.create_watchlist(
+                            new_name.strip(), new_description.strip()
+                        )
+                        st.success(f"Created watchlist '{new_name}'!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to create watchlist: {e}")
+                else:
+                    st.error("Please enter a watchlist name")
+    
+    # If watchlist selected, show items and management
+    if selected_watchlist:
+        st.divider()
+        
+        # Add new stock
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            with st.form("add_stock"):
+                st.subheader("➕ Add Stock to Watchlist")
+                
+                new_ticker = st.text_input("Stock Ticker", placeholder="e.g., AAPL")
+                
+                col1a, col1b = st.columns(2)
+                with col1a:
+                    target_high = st.number_input("Price Target (High)", min_value=0.0, step=1.0)
+                with col1b:
+                    target_low = st.number_input("Price Target (Low)", min_value=0.0, step=1.0)
+                
+                notes = st.text_area("Notes", placeholder="Investment thesis, alerts, etc.")
+                
+                if st.form_submit_button("Add to Watchlist"):
+                    if new_ticker.strip():
+                        success = watchlist_manager.add_to_watchlist(
+                            selected_watchlist["id"],
+                            new_ticker.strip().upper(),
+                            target_high if target_high > 0 else None,
+                            target_low if target_low > 0 else None,
+                            notes.strip()
+                        )
+                        if success:
+                            st.success(f"Added {new_ticker.upper()} to watchlist!")
+                            st.rerun()
+                        else:
+                            st.warning(f"{new_ticker.upper()} already in watchlist or error occurred")
+                    else:
+                        st.error("Please enter a ticker symbol")
+        
+        with col2:
+            # Pending alerts
+            st.subheader("🚨 Alerts")
+            alerts = watchlist_manager.get_pending_alerts(selected_watchlist["id"])
+            
+            if alerts:
+                for alert in alerts[:5]:  # Show top 5
+                    st.warning(f"**{alert['ticker']}**: {alert['message']}")
+                    if st.button(f"Dismiss", key=f"dismiss_{alert['id']}"):
+                        watchlist_manager.acknowledge_alert(alert["id"])
+                        st.rerun()
+            else:
+                st.info("No pending alerts")
+        
+        # Display watchlist items
+        st.subheader(f"📊 Stocks in {selected_watchlist['name']}")
+        
+        items = watchlist_manager.get_watchlist_items(selected_watchlist["id"])
+        
+        if items:
+            for item in items:
+                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                
+                with col1:
+                    st.write(f"**{item['ticker']}**")
+                    if item.get("notes"):
+                        st.caption(item["notes"])
+                
+                with col2:
+                    if item.get("price_target_high") or item.get("price_target_low"):
+                        targets = []
+                        if item.get("price_target_low"):
+                            targets.append(f"Low: ${item['price_target_low']:.2f}")
+                        if item.get("price_target_high"):
+                            targets.append(f"High: ${item['price_target_high']:.2f}")
+                        st.caption(" | ".join(targets))
+                    else:
+                        st.caption("No price targets")
+                
+                with col3:
+                    if item.get("last_analyzed_at"):
+                        st.caption(f"Last analyzed: {item['last_analyzed_at'][:10]}")
+                    else:
+                        st.caption("Never analyzed")
+                    
+                    if item.get("alert_count", 0) > 0:
+                        st.error(f"{item['alert_count']} alerts")
+                
+                with col4:
+                    if st.button("🔍 Analyze", key=f"analyze_{item['ticker']}"):
+                        # Trigger analysis for this stock
+                        run_watchlist_analysis(item['ticker'], selected_watchlist["id"])
+                    
+                    if st.button("🗑️ Remove", key=f"remove_{item['ticker']}"):
+                        if watchlist_manager.remove_from_watchlist(selected_watchlist["id"], item['ticker']):
+                            st.success(f"Removed {item['ticker']} from watchlist")
+                            st.rerun()
+                
+                st.divider()
+        else:
+            st.info("No stocks in this watchlist yet. Add some tickers above!")
+        
+        # Bulk actions
+        if items:
+            st.subheader("🔄 Bulk Actions")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("🔍 Analyze All Stocks", use_container_width=True):
+                    run_bulk_watchlist_analysis(selected_watchlist)
+            
+            with col2:
+                stale_items = watchlist_manager.get_stale_items(hours=24)
+                stale_count = len([item for item in stale_items 
+                                 if item['watchlist_id'] == selected_watchlist['id']])
+                
+                if st.button(f"🔄 Update Stale ({stale_count})", use_container_width=True):
+                    st.info("Stale update feature coming soon!")
+
+def run_watchlist_analysis(ticker: str, watchlist_id: int):
+    """Run analysis for a single stock in watchlist."""
+    with st.spinner(f"Analyzing {ticker}..."):
+        try:
+            # Check for existing recent analysis
+            if st.session_state.database:
+                recent_runs = st.session_state.database.get_recent_runs(limit=5)
+                for run in recent_runs:
+                    if (run.query.upper() == ticker.upper() and 
+                        run.status == 'completed' and
+                        (datetime.now() - run.finished_at).hours < 4):  # Less than 4 hours old
+                        
+                        st.success(f"✅ Using recent analysis for {ticker}")
+                        watchlist_manager.update_last_analyzed(watchlist_id, ticker)
+                        st.session_state.current_analysis = run.id
+                        return
+            
+            # Run new analysis
+            run_id = st.session_state.database.create_run(ticker)
+            st.session_state.current_analysis = run_id
+            
+            # Quick analysis using market data
+            market_ingestor = MarketIngestor()
+            sources = run_sync_analysis(market_ingestor.ingest(ticker, run_id))
+            
+            # Generate memo
+            memo_data = generate_simple_memo(ticker, sources)
+            st.session_state.database.save_memo(
+                run_id,
+                memo_data["tldr"],
+                [item.model_dump() for item in memo_data["risks"]],
+                [item.model_dump() for item in memo_data["opportunities"]],
+                [item.model_dump() for item in memo_data["metrics"]],
+                memo_data["html_content"]
+            )
+            
+            # Update status and watchlist
+            st.session_state.database.update_run_status(run_id, RunStatus.COMPLETED)
+            watchlist_manager.update_last_analyzed(watchlist_id, ticker)
+            
+            st.success(f"✅ Analysis completed for {ticker}")
+            st.info("Switch to 'Single Analysis' tab to view detailed results")
+            
+        except Exception as e:
+            st.error(f"Analysis failed for {ticker}: {e}")
+            logger.error(f"Watchlist analysis error: {e}")
+
+def run_bulk_watchlist_analysis(watchlist: Dict[str, Any]):
+    """Run analysis for all stocks in a watchlist."""
+    items = watchlist_manager.get_watchlist_items(watchlist["id"])
+    
+    if not items:
+        st.warning("No stocks in watchlist to analyze")
+        return
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for i, item in enumerate(items):
+        status_text.text(f"Analyzing {item['ticker']} ({i+1}/{len(items)})...")
+        progress_bar.progress((i) / len(items))
+        
+        try:
+            run_watchlist_analysis(item['ticker'], watchlist["id"])
+        except Exception as e:
+            st.warning(f"Failed to analyze {item['ticker']}: {e}")
+            continue
+    
+    progress_bar.progress(1.0)
+    status_text.text("✅ Bulk analysis completed!")
+    st.success(f"Analyzed {len(items)} stocks in '{watchlist['name']}'")
 
 if __name__ == "__main__":
     main()
