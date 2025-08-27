@@ -1,0 +1,45 @@
+# Core Framework
+streamlit>=1.28.0
+asyncio-mqtt>=0.16.0
+
+# Data Ingestion
+sec-edgar-downloader>=4.0.0
+yfinance>=0.2.18
+feedparser>=6.0.10
+requests>=2.31.0
+aiohttp>=3.8.5
+beautifulsoup4>=4.12.2
+html2text>=2020.1.16
+
+# NLP & AI
+transformers>=4.35.0
+torch>=2.1.0
+sentence-transformers>=2.2.2
+keybert>=0.7.0
+nltk>=3.8.1
+
+# Data Processing
+pandas>=2.1.0
+numpy>=1.24.0
+pydantic>=2.5.0
+
+# Database
+# sqlite3 is built into Python
+
+# Export & Visualization
+plotly>=5.17.0
+matplotlib>=3.7.0
+weasyprint>=60.1
+python-pptx>=0.6.21
+jinja2>=3.1.2
+
+# Utilities
+tenacity>=8.2.3
+loguru>=0.7.2
+python-dateutil>=2.8.2
+
+# Development & Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.9.0
+flake8>=6.1.0
